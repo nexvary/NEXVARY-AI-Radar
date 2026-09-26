@@ -4,7 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-fun String.quoted(): String = """ + replace("\", "\\").replace(""", "\"") + """
+fun String.quoted(): String = buildString { append(34.toChar()); append(this@quoted); append(34.toChar()) }
 fun propOrEnv(name: String): String =
     providers.gradleProperty(name).orElse(providers.environmentVariable(name)).orElse("").get()
 
