@@ -4,6 +4,8 @@ data class RadarProject(
     val id: String,
     val name: String,
     val description: String,
+    val purpose: String = "",
+    val purposeAr: String = "",
     val url: String,
     val source: String,
     val category: String,

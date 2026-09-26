@@ -34,6 +34,8 @@ def db() -> sqlite3.Connection:
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             description TEXT NOT NULL,
+            purpose TEXT NOT NULL DEFAULT '',
+            purpose_ar TEXT NOT NULL DEFAULT '',
             url TEXT NOT NULL,
             source TEXT NOT NULL,
             category TEXT NOT NULL,
@@ -44,6 +46,11 @@ def db() -> sqlite3.Connection:
             first_seen_at TEXT NOT NULL
         )
     """)
+    columns = {row["name"] for row in c.execute("PRAGMA table_info(projects)").fetchall()}
+    if "purpose" not in columns:
+        c.execute("ALTER TABLE projects ADD COLUMN purpose TEXT NOT NULL DEFAULT ''")
+    if "purpose_ar" not in columns:
+        c.execute("ALTER TABLE projects ADD COLUMN purpose_ar TEXT NOT NULL DEFAULT ''")
     c.execute("""
         CREATE TABLE IF NOT EXISTS webhook_deliveries (
             delivery_id TEXT PRIMARY KEY,
@@ -90,6 +97,60 @@ def category(text: str) -> str:
     if any(x in s for x in ("llm", "language model", "transformer")): return "LLM"
     return "General AI"
 
+def purpose_text(category_name: str, description: str, task: str | None = None, space: bool = False, arabic: bool = False) -> str:
+    task = (task or "").lower()
+    en = {
+        "text-generation": "Generates, completes, or rewrites text from a prompt.",
+        "text2text-generation": "Transforms input text into new text, including summarization, rewriting, or translation.",
+        "text-to-image": "Generates images from written prompts.",
+        "image-to-image": "Transforms or edits an input image using AI.",
+        "image-to-text": "Analyzes images and produces text descriptions or answers.",
+        "image-classification": "Classifies images into categories.",
+        "object-detection": "Detects and locates objects inside images.",
+        "automatic-speech-recognition": "Converts spoken audio into text.",
+        "text-to-speech": "Converts written text into synthetic speech.",
+        "audio-classification": "Classifies or recognizes content in audio.",
+        "sentence-similarity": "Measures semantic similarity between pieces of text.",
+        "feature-extraction": "Creates embeddings/features for search, clustering, or downstream AI tasks.",
+        "question-answering": "Answers questions from supplied text or context.",
+        "summarization": "Creates shorter summaries of longer text.",
+        "translation": "Translates text between languages.",
+    }
+    ar = {
+        "text-generation": "نموذج لتوليد النصوص أو إكمالها أو إعادة صياغتها انطلاقًا من تعليمات المستخدم.",
+        "text2text-generation": "نموذج يحوّل النص إلى نص آخر مثل التلخيص أو إعادة الصياغة أو الترجمة.",
+        "text-to-image": "نموذج لإنشاء الصور من الأوامر والوصف النصي.",
+        "image-to-image": "نموذج لتعديل الصور أو تحويلها بالذكاء الاصطناعي.",
+        "image-to-text": "نموذج لتحليل الصور وتحويل محتواها إلى وصف أو إجابة نصية.",
+        "image-classification": "نموذج لتصنيف الصور والتعرف على نوع محتواها.",
+        "object-detection": "نموذج لاكتشاف الأجسام داخل الصور وتحديد مواقعها.",
+        "automatic-speech-recognition": "نموذج لتحويل الكلام والتسجيلات الصوتية إلى نص.",
+        "text-to-speech": "نموذج لتحويل النص المكتوب إلى صوت اصطناعي.",
+        "audio-classification": "نموذج للتعرف على محتوى الصوت وتصنيفه.",
+        "sentence-similarity": "نموذج لقياس التشابه في المعنى بين النصوص.",
+        "feature-extraction": "نموذج لاستخراج تمثيلات رقمية تستخدم في البحث والتصنيف وتطبيقات الذكاء الاصطناعي.",
+        "question-answering": "نموذج للإجابة عن الأسئلة اعتمادًا على نص أو سياق مقدم.",
+        "summarization": "نموذج لتلخيص النصوص الطويلة إلى خلاصة أقصر.",
+        "translation": "نموذج لترجمة النصوص بين اللغات.",
+    }
+    if task in (ar if arabic else en):
+        return (ar if arabic else en)[task]
+    if arabic:
+        prefix = {
+            "Video AI": "مشروع ذكاء اصطناعي لإنشاء الفيديو أو فهمه أو معالجته.",
+            "Agents": "مشروع وكلاء ذكاء اصطناعي لأتمتة المهام وتنفيذها بصورة شبه مستقلة.",
+            "Cybersecurity AI": "مشروع يستخدم الذكاء الاصطناعي في الأمن السيبراني أو التحليل أو الكشف أو التحقيق الرقمي.",
+            "Audio AI": "مشروع لمعالجة الصوت أو الكلام بالذكاء الاصطناعي.",
+            "Vision AI": "مشروع للرؤية الحاسوبية أو فهم الصور أو توليدها أو OCR.",
+            "Coding AI": "مشروع لمساعدة المطورين أو توليد وتحليل الشفرة البرمجية.",
+            "LLM": "مشروع نموذج لغوي كبير لفهم النصوص أو توليدها.",
+            "AI Apps": "تطبيق ذكاء اصطناعي تفاعلي جاهز للتجربة.",
+        }.get(category_name, "مشروع جديد في مجال الذكاء الاصطناعي.")
+        return prefix + " الوصف الأصلي: " + description[:220]
+    if space:
+        return "Interactive AI application hosted on Hugging Face Spaces. " + description[:220]
+    return description[:320] or "Artificial-intelligence project."
+
 def is_local(text: str) -> bool:
     s = text.lower()
     return any(x in s for x in ("gguf", "onnx", "quantized", "local", "cpu", "edge", "mobile", "llama.cpp"))
@@ -130,6 +191,8 @@ async def fetch_github(client: httpx.AsyncClient) -> list[dict[str, Any]]:
                 "id": f"gh:{o.get('id')}",
                 "name": o.get("full_name") or "GitHub project",
                 "description": o.get("description") or "New AI project on GitHub",
+                "purpose": purpose_text(category(text), o.get("description") or "New AI project on GitHub"),
+                "purpose_ar": purpose_text(category(text), o.get("description") or "New AI project on GitHub", arabic=True),
                 "url": o.get("html_url") or "",
                 "source": "GitHub",
                 "category": category(text),
@@ -152,17 +215,22 @@ async def fetch_huggingface(client: httpx.AsyncClient) -> list[dict[str, Any]]:
             if not item_id:
                 continue
             tags = o.get("tags") or []
-            text = " ".join([item_id, " ".join(tags)])
+            pipeline = o.get("pipeline_tag")
+            text = " ".join([item_id, " ".join(tags), pipeline or ""])
             local = is_local(text)
             published = o.get("lastModified") or datetime.now(timezone.utc).isoformat()
             likes = int(o.get("likes") or 0)
+            description = " • ".join(tags[:6]) or f"New Hugging Face {endpoint[:-1]}"
+            cat = "AI Apps" if endpoint == "spaces" else category(text)
             out.append({
                 "id": f"hf:{endpoint}:{item_id}",
                 "name": item_id,
-                "description": " • ".join(tags[:6]) or f"New Hugging Face {endpoint[:-1]}",
+                "description": description,
+                "purpose": purpose_text(cat, description, pipeline, space=endpoint == "spaces"),
+                "purpose_ar": purpose_text(cat, description, pipeline, space=endpoint == "spaces", arabic=True),
                 "url": f"https://huggingface.co/{prefix}{item_id}",
                 "source": "Hugging Face",
-                "category": "AI Apps" if endpoint == "spaces" else category(text),
+                "category": cat,
                 "published_at": published,
                 "popularity": likes,
                 "score": score(likes * 2, published, local),
@@ -189,6 +257,8 @@ async def fetch_arxiv(client: httpx.AsyncClient) -> list[dict[str, Any]]:
             "id": f"arxiv:{identity}",
             "name": " ".join(e.title.split()),
             "description": " ".join(getattr(e, "summary", "").split())[:500],
+            "purpose": " ".join(getattr(e, "summary", "").split())[:320],
+            "purpose_ar": "بحث جديد في مجال " + category(text) + " يدرس موضوع: " + " ".join(e.title.split()) + ".",
             "url": e.link,
             "source": "arXiv",
             "category": category(text),
@@ -206,15 +276,17 @@ def save_new(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for p in items:
             exists = c.execute("SELECT 1 FROM projects WHERE id=?", (p["id"],)).fetchone()
             c.execute("""
-                INSERT INTO projects(id,name,description,url,source,category,published_at,popularity,score,local_friendly,first_seen_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO projects(id,name,description,purpose,purpose_ar,url,source,category,published_at,popularity,score,local_friendly,first_seen_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
-                    name=excluded.name, description=excluded.description, url=excluded.url,
+                    name=excluded.name, description=excluded.description, purpose=excluded.purpose,
+                    purpose_ar=excluded.purpose_ar, url=excluded.url,
                     category=excluded.category, published_at=excluded.published_at,
                     popularity=excluded.popularity, score=excluded.score,
                     local_friendly=excluded.local_friendly
-            """, (p["id"], p["name"], p["description"], p["url"], p["source"], p["category"],
-                  p["published_at"], p["popularity"], p["score"], 1 if p["local_friendly"] else 0, now))
+            """, (p["id"], p["name"], p["description"], p.get("purpose", ""), p.get("purpose_ar", ""),
+                  p["url"], p["source"], p["category"], p["published_at"], p["popularity"], p["score"],
+                  1 if p["local_friendly"] else 0, now))
             if not exists:
                 new_items.append(p)
     return new_items
@@ -313,6 +385,8 @@ async def huggingface_webhook(request: Request):
         "id": f"hf:webhook:{repo.get('id') or name}",
         "name": name,
         "description": f"Hugging Face {repo_type} webhook event",
+        "purpose": purpose_text("AI Apps" if repo_type == "space" else category(text), f"Hugging Face {repo_type} webhook event", space=repo_type == "space"),
+        "purpose_ar": purpose_text("AI Apps" if repo_type == "space" else category(text), f"Hugging Face {repo_type} webhook event", space=repo_type == "space", arabic=True),
         "url": web_url,
         "source": "Hugging Face",
         "category": "AI Apps" if repo_type == "space" else category(text),
@@ -355,6 +429,8 @@ async def github_webhook(request: Request):
         "id": f"gh:webhook:{repo.get('id') or name}",
         "name": name,
         "description": desc,
+        "purpose": purpose_text(category(text), desc),
+        "purpose_ar": purpose_text(category(text), desc, arabic=True),
         "url": url,
         "source": "GitHub",
         "category": category(text),

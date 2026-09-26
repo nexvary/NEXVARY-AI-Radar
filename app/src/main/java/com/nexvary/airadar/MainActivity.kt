@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.work.*
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
@@ -67,6 +68,7 @@ fun RadarApp(openUrl: (String) -> Unit) {
     LaunchedEffect(Unit) { refresh() }
 
     val categories = listOf("All","Agents","LLM","Video AI","Vision AI","Audio AI","Coding AI","Cybersecurity AI","AI Apps")
+    val isArabic = remember { java.util.Locale.getDefault().language == "ar" }
     val filtered = projects.filter {
         (category == "All" || it.category == category) &&
         (query.isBlank() || it.name.contains(query, true) || it.description.contains(query, true))
@@ -120,8 +122,20 @@ fun RadarApp(openUrl: (String) -> Unit) {
                                         }
                                         AssistChip(onClick = {}, label = { Text("${p.score}/100") })
                                     }
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(p.description, maxLines = 3)
+                                    Spacer(Modifier.height(10.dp))
+                                    Text(
+                                        if (isArabic) "وظيفة المشروع" else "Project purpose",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        if (isArabic && p.purposeAr.isNotBlank()) p.purposeAr
+                                        else p.purpose.ifBlank { p.description },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 5
+                                    )
                                     Spacer(Modifier.height(8.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         if (p.stars > 0) Text("★ ${p.stars}")

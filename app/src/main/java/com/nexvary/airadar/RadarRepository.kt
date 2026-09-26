@@ -36,6 +36,8 @@ class RadarRepository(private val context: Context) {
                 id = id,
                 name = o.str("name") ?: id,
                 description = o.str("description").orEmpty(),
+                purpose = o.str("purpose").orEmpty(),
+                purposeAr = o.str("purpose_ar").orEmpty(),
                 url = o.str("url").orEmpty(),
                 source = o.str("source") ?: "Radar Server",
                 category = o.str("category") ?: "General AI",
@@ -83,6 +85,8 @@ class RadarRepository(private val context: Context) {
                         id = "gh:" + (o["id"]?.jsonPrimitive?.contentOrNull ?: name),
                         name = name,
                         description = desc,
+                        purpose = desc,
+                        purposeAr = purposeArabic(categorize(name, desc, topics), desc, null),
                         url = o.str("html_url") ?: "https://github.com/$name",
                         source = "GitHub",
                         category = categorize(name, desc, topics),
@@ -106,15 +110,19 @@ class RadarRepository(private val context: Context) {
                     val id = o.str("id") ?: return@mapNotNull null
                     val tags = o["tags"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
                     val likes = o.int("likes")
+                    val pipeline = o.str("pipeline_tag")
                     val desc = tags.take(5).joinToString(" • ").ifBlank { "New Hugging Face $type" }
                     val local = localFriendly(id, desc, tags)
+                    val cat = if (type == "Model") categorize(id, desc, tags) else "AI Apps"
                     RadarProject(
                         id = "hf:$endpoint:$id",
                         name = id,
                         description = desc,
+                        purpose = purposeEnglish(cat, desc, pipeline, type),
+                        purposeAr = purposeArabic(cat, desc, pipeline),
                         url = "https://huggingface.co/" + if (endpoint == "spaces") "spaces/$id" else id,
                         source = "Hugging Face",
-                        category = if (type == "Model") categorize(id, desc, tags) else "AI Apps",
+                        category = cat,
                         stars = likes,
                         publishedAt = o.str("lastModified").orEmpty(),
                         license = tags.firstOrNull { it.startsWith("license:") }?.substringAfter(":") ?: "Unknown",
@@ -149,6 +157,73 @@ class RadarRepository(private val context: Context) {
             listOf("llm","language-model","transformer").any { it in s } -> "LLM"
             else -> "General AI"
         }
+    }
+
+    private fun purposeEnglish(category: String, description: String, pipeline: String?, type: String): String {
+        val specific = when (pipeline?.lowercase()) {
+            "text-generation" -> "Generates, completes, or rewrites text from a prompt."
+            "text2text-generation" -> "Transforms input text into new text, such as summarization, rewriting, or translation."
+            "text-to-image" -> "Generates images from written prompts."
+            "image-to-image" -> "Transforms or edits an input image using AI."
+            "image-to-text" -> "Analyzes an image and produces a text description or answer."
+            "image-classification" -> "Classifies images into categories."
+            "object-detection" -> "Detects and locates objects inside images."
+            "automatic-speech-recognition" -> "Converts spoken audio into text."
+            "text-to-speech" -> "Converts written text into synthetic speech."
+            "audio-classification" -> "Classifies or recognizes content in audio."
+            "sentence-similarity" -> "Measures semantic similarity between pieces of text."
+            "feature-extraction" -> "Converts input data into embeddings/features for search, clustering, or downstream AI tasks."
+            "question-answering" -> "Answers questions from provided text or context."
+            "summarization" -> "Creates shorter summaries of longer text."
+            "translation" -> "Translates text between languages."
+            else -> null
+        }
+        if (specific != null) return specific
+        if (type == "Space") return "Interactive AI application hosted on Hugging Face Spaces. " + description.take(180)
+        return when (category) {
+            "Video AI" -> "AI project for generating, understanding, or processing video. " + description.take(180)
+            "Agents" -> "AI agent project designed to automate tasks or act semi-autonomously. " + description.take(180)
+            "Cybersecurity AI" -> "AI project for cybersecurity, analysis, detection, or digital investigation. " + description.take(180)
+            "Audio AI" -> "AI project for speech, voice, or audio processing. " + description.take(180)
+            "Vision AI" -> "AI project for image understanding, generation, OCR, or computer vision. " + description.take(180)
+            "Coding AI" -> "AI project for programming, code generation, or developer assistance. " + description.take(180)
+            "LLM" -> "Large-language-model project for understanding or generating text. " + description.take(180)
+            else -> description.ifBlank { "General artificial-intelligence project." }
+        }
+    }
+
+    private fun purposeArabic(category: String, description: String, pipeline: String?): String {
+        val specific = when (pipeline?.lowercase()) {
+            "text-generation" -> "نموذج لتوليد النصوص أو إكمالها أو إعادة صياغتها انطلاقًا من تعليمات المستخدم."
+            "text2text-generation" -> "نموذج يحوّل النص إلى نص آخر، مثل التلخيص أو إعادة الصياغة أو الترجمة."
+            "text-to-image" -> "نموذج لإنشاء الصور من الأوامر والوصف النصي."
+            "image-to-image" -> "نموذج لتعديل الصور أو تحويلها بالذكاء الاصطناعي."
+            "image-to-text" -> "نموذج لتحليل الصور وتحويل محتواها إلى وصف أو إجابة نصية."
+            "image-classification" -> "نموذج لتصنيف الصور والتعرف على نوع محتواها."
+            "object-detection" -> "نموذج لاكتشاف الأجسام داخل الصور وتحديد مواقعها."
+            "automatic-speech-recognition" -> "نموذج لتحويل الكلام والتسجيلات الصوتية إلى نص."
+            "text-to-speech" -> "نموذج لتحويل النص المكتوب إلى صوت اصطناعي."
+            "audio-classification" -> "نموذج للتعرف على محتوى الصوت وتصنيفه."
+            "sentence-similarity" -> "نموذج لقياس التشابه في المعنى بين النصوص."
+            "feature-extraction" -> "نموذج لاستخراج تمثيلات وميزات رقمية تستخدم في البحث والتصنيف وتطبيقات الذكاء الاصطناعي."
+            "question-answering" -> "نموذج للإجابة عن الأسئلة اعتمادًا على نص أو سياق مقدم."
+            "summarization" -> "نموذج لتلخيص النصوص الطويلة إلى خلاصة أقصر."
+            "translation" -> "نموذج لترجمة النصوص بين اللغات."
+            else -> null
+        }
+        if (specific != null) return specific
+        val prefix = when (category) {
+            "Video AI" -> "مشروع ذكاء اصطناعي لإنشاء الفيديو أو فهمه أو معالجته."
+            "Agents" -> "مشروع وكلاء ذكاء اصطناعي لأتمتة المهام وتنفيذها بصورة شبه مستقلة."
+            "Cybersecurity AI" -> "مشروع يستخدم الذكاء الاصطناعي في الأمن السيبراني أو التحليل أو الكشف أو التحقيق الرقمي."
+            "Audio AI" -> "مشروع لمعالجة الصوت أو الكلام أو الأصوات بالذكاء الاصطناعي."
+            "Vision AI" -> "مشروع للرؤية الحاسوبية أو فهم الصور أو توليدها أو OCR."
+            "Coding AI" -> "مشروع لمساعدة المطورين أو توليد وتحليل الشفرة البرمجية."
+            "LLM" -> "مشروع نموذج لغوي كبير لفهم النصوص أو توليدها."
+            "AI Apps" -> "تطبيق ذكاء اصطناعي تفاعلي جاهز للتجربة."
+            else -> "مشروع جديد في مجال الذكاء الاصطناعي."
+        }
+        return prefix + " الوصف الأصلي: " + description.take(180)
     }
 
     private fun localFriendly(name: String, desc: String, tags: List<String>): Boolean {
