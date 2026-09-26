@@ -17,10 +17,35 @@ class RadarRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("radar", Context.MODE_PRIVATE)
 
     suspend fun fetchAll(): List<RadarProject> = coroutineScope {
+        val base = BuildConfig.RADAR_API_BASE.trim().trimEnd('/')
+        if (base.isNotBlank()) {
+            val server = runCatching { fetchServer(base) }.getOrElse { emptyList() }
+            if (server.isNotEmpty()) return@coroutineScope server.sortedByDescending { it.score }
+        }
         val github = async { fetchGitHub() }
         val models = async { fetchHuggingFace("models", "Model") }
         val spaces = async { fetchHuggingFace("spaces", "Space") }
         (github.await() + models.await() + spaces.await()).distinctBy { it.url }.sortedByDescending { it.score }
+    }
+
+    private suspend fun fetchServer(base: String): List<RadarProject> = withContext(Dispatchers.IO) {
+        json.parseToJsonElement(get("$base/projects?limit=250")).jsonArray.mapNotNull { item ->
+            val o = item.jsonObject
+            val id = o.str("id") ?: return@mapNotNull null
+            RadarProject(
+                id = id,
+                name = o.str("name") ?: id,
+                description = o.str("description").orEmpty(),
+                url = o.str("url").orEmpty(),
+                source = o.str("source") ?: "Radar Server",
+                category = o.str("category") ?: "General AI",
+                stars = o.int("popularity"),
+                publishedAt = o.str("published_at").orEmpty(),
+                license = "See source",
+                score = o.int("score"),
+                isLocalFriendly = o.int("local_friendly") == 1
+            )
+        }
     }
 
     fun savedIds(): Set<String> = prefs.getStringSet("saved", emptySet()) ?: emptySet()
