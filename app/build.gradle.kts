@@ -4,6 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+fun String.quoted(): String = """ + replace("\", "\\").replace(""", "\"") + """
+fun propOrEnv(name: String): String =
+    providers.gradleProperty(name).orElse(providers.environmentVariable(name)).orElse("").get()
+
 android {
     namespace = "com.nexvary.airadar"
     compileSdk = 35
@@ -12,8 +16,14 @@ android {
         applicationId = "com.nexvary.airadar"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+
+        buildConfigField("String", "FIREBASE_APP_ID", propOrEnv("FIREBASE_APP_ID").quoted())
+        buildConfigField("String", "FIREBASE_API_KEY", propOrEnv("FIREBASE_API_KEY").quoted())
+        buildConfigField("String", "FIREBASE_PROJECT_ID", propOrEnv("FIREBASE_PROJECT_ID").quoted())
+        buildConfigField("String", "FIREBASE_SENDER_ID", propOrEnv("FIREBASE_SENDER_ID").quoted())
+        buildConfigField("String", "RADAR_API_BASE", propOrEnv("RADAR_API_BASE").quoted())
     }
 
     compileOptions {
@@ -25,7 +35,10 @@ android {
         jvmToolchain(17)
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -34,6 +47,8 @@ android {
 
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.material3:material3")
