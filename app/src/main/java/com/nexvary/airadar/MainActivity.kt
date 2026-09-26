@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -17,7 +18,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.work.*
 import kotlinx.coroutines.launch
@@ -51,8 +54,13 @@ fun RadarApp(openUrl: (String) -> Unit) {
     var saved by remember { mutableStateOf(repo.savedIds()) }
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("All") }
+    var screen by remember { mutableStateOf("radar") }
+    var language by remember { mutableStateOf(repo.uiLanguage()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    val isArabic = language == "ar"
+    val layoutDirection = if (isArabic) LayoutDirection.Rtl else LayoutDirection.Ltr
 
     fun refresh() {
         scope.launch {
@@ -60,175 +68,308 @@ fun RadarApp(openUrl: (String) -> Unit) {
             error = null
             runCatching { repo.fetchAll() }
                 .onSuccess { projects = it }
-                .onFailure { error = it.message ?: "Unable to refresh" }
+                .onFailure { error = it.message ?: if (isArabic) "تعذر تحديث المشاريع" else "Unable to refresh" }
             loading = false
         }
     }
 
     LaunchedEffect(Unit) { refresh() }
+    BackHandler(enabled = screen != "radar") { screen = "radar" }
 
     val categories = listOf("All","Agents","LLM","Video AI","Vision AI","Audio AI","Coding AI","Cybersecurity AI","AI Apps")
-    val isArabic = remember { java.util.Locale.getDefault().language == "ar" }
-    val filtered = projects.filter {
+    val candidateIds = remember(projects) {
+        projects
+            .map { it.id to analyzeNexvaryFit(it, false).score }
+            .filter { it.second >= 50 }
+            .sortedByDescending { it.second }
+            .map { it.first }
+            .toSet()
+    }
+    val baseProjects = if (screen == "candidates") {
+        projects.filter { it.id in candidateIds }
+            .sortedByDescending { analyzeNexvaryFit(it, false).score }
+    } else projects
+
+    val filtered = baseProjects.filter {
         (category == "All" || it.category == category) &&
-        (query.isBlank() || it.name.contains(query, true) || it.description.contains(query, true))
+        (query.isBlank() || it.name.contains(query, true) || it.description.contains(query, true) ||
+            it.purpose.contains(query, true) || it.purposeAr.contains(query, true))
     }
 
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Column { Text("NEXVARY AI Radar"); Text("${projects.size} discoveries", style = MaterialTheme.typography.labelSmall) } },
-                    actions = {
-                        IconButton(onClick = { refresh() }) { Icon(Icons.Default.Refresh, "Refresh") }
-                        IconButton(onClick = { openUrl("https://nexvary.com/") }) { Icon(Icons.Default.Info, "About") }
-                    }
-                )
-            }
-        ) { pad ->
-            Column(Modifier.padding(pad).fillMaxSize().padding(horizontal = 12.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    label = { Text("Search AI projects") },
-                    singleLine = true
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(categories) { item ->
-                        FilterChip(
-                            selected = category == item,
-                            onClick = { category = item },
-                            label = { Text(item) }
+    CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+        MaterialTheme(colorScheme = darkColorScheme()) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(
+                                    when (screen) {
+                                        "candidates" -> if (isArabic) "مرشح لـ NEXVARY" else "NEXVARY Candidates"
+                                        "about" -> if (isArabic) "عن NEXVARY" else "About NEXVARY"
+                                        else -> "NEXVARY AI Radar"
+                                    }
+                                )
+                                if (screen != "about") {
+                                    Text(
+                                        if (isArabic)
+                                            (if (screen == "candidates") candidateIds.size.toString() + " مشروعًا مرشحًا" else projects.size.toString() + " اكتشافًا")
+                                        else
+                                            (if (screen == "candidates") candidateIds.size.toString() + " candidates" else projects.size.toString() + " discoveries"),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                        },
+                        navigationIcon = {
+                            if (screen != "radar") {
+                                IconButton(onClick = { screen = "radar" }) {
+                                    Icon(Icons.Default.ArrowBack, if (isArabic) "رجوع" else "Back")
+                                }
+                            }
+                        },
+                        actions = {
+                            TextButton(
+                                onClick = {
+                                    language = if (language == "ar") "en" else "ar"
+                                    repo.setUiLanguage(language)
+                                }
+                            ) {
+                                Text(if (isArabic) "EN" else "AR")
+                            }
+                            if (screen != "about") {
+                                IconButton(onClick = { refresh() }) {
+                                    Icon(Icons.Default.Refresh, if (isArabic) "تحديث" else "Refresh")
+                                }
+                            }
+                        }
+                    )
+                },
+                bottomBar = {
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = screen == "radar",
+                            onClick = { screen = "radar" },
+                            icon = { Icon(Icons.Default.Radar, null) },
+                            label = { Text(if (isArabic) "الرادار" else "Radar") }
+                        )
+                        NavigationBarItem(
+                            selected = screen == "candidates",
+                            onClick = { screen = "candidates"; category = "All"; query = "" },
+                            icon = { Icon(Icons.Default.BusinessCenter, null) },
+                            label = { Text(if (isArabic) "مرشح لـ NEXVARY" else "NEXVARY") }
+                        )
+                        NavigationBarItem(
+                            selected = screen == "about",
+                            onClick = { screen = "about" },
+                            icon = { Icon(Icons.Default.Info, null) },
+                            label = { Text(if (isArabic) "عنّا" else "About") }
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
-                if (!loading && filtered.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No projects match the current filter.") }
+            ) { pad ->
+                if (screen == "about") {
+                    AboutNexvaryScreen(
+                        isArabic = isArabic,
+                        openUrl = openUrl,
+                        modifier = Modifier.padding(pad)
+                    )
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(filtered, key = { it.id }) { p ->
-                            var nexvaryExpanded by remember(p.id) { mutableStateOf(false) }
-                            val nexvaryFit = remember(p) { analyzeNexvaryFit(p, isArabic) }
-                            ElevatedCard(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text(p.name, style = MaterialTheme.typography.titleMedium)
-                                            Text("${p.source} • ${p.category}", style = MaterialTheme.typography.labelMedium)
-                                        }
-                                        AssistChip(onClick = {}, label = { Text("${p.score}/100") })
-                                    }
-                                    Spacer(Modifier.height(10.dp))
+                    Column(
+                        Modifier
+                            .padding(pad)
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp)
+                    ) {
+                        if (screen == "candidates") {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.medium,
+                                tonalElevation = 2.dp
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
                                     Text(
-                                        if (isArabic) "وظيفة المشروع" else "Project purpose",
-                                        style = MaterialTheme.typography.labelLarge,
+                                        if (isArabic) "أفضل المشاريع المناسبة للشركة" else "Best-fit projects for the company",
+                                        style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
-                                    Spacer(Modifier.height(4.dp))
                                     Text(
-                                        if (isArabic && p.purposeAr.isNotBlank()) p.purposeAr
-                                        else p.purpose.ifBlank { p.description },
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 5
+                                        if (isArabic)
+                                            "يظهر هنا تلقائيًا كل مشروع حصل على 50/100 أو أكثر في تحليل ملاءمته لـ NEXVARY، مرتّبًا حسب الفائدة المحتملة."
+                                        else
+                                            "Projects scoring 50/100 or higher in NEXVARY fit analysis appear here automatically, ordered by potential value.",
+                                        style = MaterialTheme.typography.bodySmall
                                     )
-                                    Spacer(Modifier.height(12.dp))
-                                    ProjectInfoSection(
-                                        title = if (isArabic) "كيف أستخدم هذا المشروع؟" else "How can I use it?",
-                                        text = usageGuide(p, isArabic)
-                                    )
-                                    Spacer(Modifier.height(10.dp))
-                                    ProjectInfoSection(
-                                        title = if (isArabic) "هل يعمل محليًا؟" else "Can it run locally?",
-                                        text = localCompatibility(p, isArabic)
-                                    )
-                                    Spacer(Modifier.height(10.dp))
-                                    ProjectInfoSection(
-                                        title = if (isArabic) "متطلبات التشغيل التقريبية" else "Approximate requirements",
-                                        text = approximateRequirements(p, isArabic)
-                                    )
-                                    Spacer(Modifier.height(12.dp))
-                                    OutlinedButton(
-                                        onClick = { nexvaryExpanded = !nexvaryExpanded },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Icon(Icons.Default.BusinessCenter, contentDescription = null)
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(if (isArabic) "هل يفيد NEXVARY؟" else "Useful for NEXVARY?")
-                                        Spacer(Modifier.weight(1f))
-                                        Icon(
-                                            if (nexvaryExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                            contentDescription = null
-                                        )
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
+                            label = { Text(if (isArabic) "ابحث في مشاريع الذكاء الاصطناعي" else "Search AI projects") },
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(categories) { item ->
+                                FilterChip(
+                                    selected = category == item,
+                                    onClick = { category = item },
+                                    label = { Text(categoryLabel(item, isArabic)) }
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
+
+                        if (!loading && filtered.isEmpty()) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    if (isArabic) {
+                                        if (screen == "candidates") "لا توجد مشاريع مرشحة تطابق الفلتر الحالي." else "لا توجد مشاريع تطابق البحث الحالي."
+                                    } else {
+                                        if (screen == "candidates") "No NEXVARY candidates match the current filter." else "No projects match the current filter."
                                     }
-                                    if (nexvaryExpanded) {
-                                        Spacer(Modifier.height(8.dp))
-                                        Surface(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = MaterialTheme.shapes.medium,
-                                            tonalElevation = 2.dp
-                                        ) {
-                                            Column(Modifier.padding(12.dp)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        nexvaryFit.level,
-                                                        style = MaterialTheme.typography.titleSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.primary
-                                                    )
-                                                    Spacer(Modifier.weight(1f))
-                                                    AssistChip(
-                                                        onClick = {},
-                                                        label = { Text("${nexvaryFit.score}/100") }
-                                                    )
+                                )
+                            }
+                        } else {
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(filtered, key = { it.id }) { p ->
+                                    var nexvaryExpanded by remember(p.id) { mutableStateOf(screen == "candidates") }
+                                    val nexvaryFit = remember(p, language) { analyzeNexvaryFit(p, isArabic) }
+
+                                    ElevatedCard(Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(14.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(p.name, style = MaterialTheme.typography.titleMedium)
+                                                    Text(p.source + " • " + categoryLabel(p.category, isArabic), style = MaterialTheme.typography.labelMedium)
                                                 }
-                                                Spacer(Modifier.height(6.dp))
-                                                Text(
-                                                    nexvaryFit.summary,
-                                                    style = MaterialTheme.typography.bodyMedium
+                                                AssistChip(onClick = {}, label = { Text(p.score.toString() + "/100") })
+                                            }
+
+                                            Spacer(Modifier.height(10.dp))
+                                            Text(
+                                                if (isArabic) "وظيفة المشروع" else "Project purpose",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                if (isArabic && p.purposeAr.isNotBlank()) p.purposeAr
+                                                else p.purpose.ifBlank { p.description },
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines = 5
+                                            )
+
+                                            Spacer(Modifier.height(12.dp))
+                                            ProjectInfoSection(
+                                                title = if (isArabic) "كيف أستخدم هذا المشروع؟" else "How can I use it?",
+                                                text = usageGuide(p, isArabic)
+                                            )
+                                            Spacer(Modifier.height(10.dp))
+                                            ProjectInfoSection(
+                                                title = if (isArabic) "هل يعمل محليًا؟" else "Can it run locally?",
+                                                text = localCompatibility(p, isArabic)
+                                            )
+                                            Spacer(Modifier.height(10.dp))
+                                            ProjectInfoSection(
+                                                title = if (isArabic) "متطلبات التشغيل التقريبية" else "Approximate requirements",
+                                                text = approximateRequirements(p, isArabic)
+                                            )
+
+                                            Spacer(Modifier.height(12.dp))
+                                            OutlinedButton(
+                                                onClick = { nexvaryExpanded = !nexvaryExpanded },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Icon(Icons.Default.BusinessCenter, contentDescription = null)
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(if (isArabic) "هل يفيد NEXVARY؟" else "Useful for NEXVARY?")
+                                                Spacer(Modifier.weight(1f))
+                                                Icon(
+                                                    if (nexvaryExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                    contentDescription = null
                                                 )
-                                                if (nexvaryFit.useCases.isNotEmpty()) {
-                                                    Spacer(Modifier.height(8.dp))
-                                                    Text(
-                                                        if (isArabic) "مجالات الاستفادة داخل NEXVARY" else "NEXVARY use cases",
-                                                        style = MaterialTheme.typography.labelLarge,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.secondary
-                                                    )
-                                                    Spacer(Modifier.height(4.dp))
-                                                    nexvaryFit.useCases.forEach { useCase ->
-                                                        Text("• $useCase", style = MaterialTheme.typography.bodySmall)
+                                            }
+
+                                            if (nexvaryExpanded) {
+                                                Spacer(Modifier.height(8.dp))
+                                                Surface(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = MaterialTheme.shapes.medium,
+                                                    tonalElevation = 2.dp
+                                                ) {
+                                                    Column(Modifier.padding(12.dp)) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(
+                                                                nexvaryFit.level,
+                                                                style = MaterialTheme.typography.titleSmall,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                            Spacer(Modifier.weight(1f))
+                                                            AssistChip(
+                                                                onClick = {},
+                                                                label = { Text(nexvaryFit.score.toString() + "/100") }
+                                                            )
+                                                        }
+                                                        Spacer(Modifier.height(6.dp))
+                                                        Text(nexvaryFit.summary, style = MaterialTheme.typography.bodyMedium)
+
+                                                        if (nexvaryFit.useCases.isNotEmpty()) {
+                                                            Spacer(Modifier.height(8.dp))
+                                                            Text(
+                                                                if (isArabic) "مجالات الاستفادة داخل NEXVARY" else "NEXVARY use cases",
+                                                                style = MaterialTheme.typography.labelLarge,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.secondary
+                                                            )
+                                                            Spacer(Modifier.height(4.dp))
+                                                            nexvaryFit.useCases.forEach { useCase ->
+                                                                Text("• " + useCase, style = MaterialTheme.typography.bodySmall)
+                                                            }
+                                                        }
+
+                                                        Spacer(Modifier.height(8.dp))
+                                                        Text(
+                                                            if (isArabic) "ملاحظة عملية" else "Practical note",
+                                                            style = MaterialTheme.typography.labelLarge,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.secondary
+                                                        )
+                                                        Spacer(Modifier.height(3.dp))
+                                                        Text(nexvaryFit.caution, style = MaterialTheme.typography.bodySmall)
                                                     }
                                                 }
-                                                Spacer(Modifier.height(8.dp))
-                                                Text(
-                                                    if (isArabic) "ملاحظة عملية" else "Practical note",
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
-                                                Spacer(Modifier.height(3.dp))
-                                                Text(nexvaryFit.caution, style = MaterialTheme.typography.bodySmall)
+                                            }
+
+                                            Spacer(Modifier.height(10.dp))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                if (p.stars > 0) Text("★ " + p.stars)
+                                                Text(if (isArabic) "الرخصة: " + p.license else "License: " + p.license)
+                                                if (p.isLocalFriendly) Text(if (isArabic) "• مناسب محليًا" else "• Local-friendly")
+                                            }
+
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                                IconButton(onClick = { saved = repo.toggleSaved(p.id) }) {
+                                                    Icon(
+                                                        if (p.id in saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                        if (isArabic) "حفظ" else "Save"
+                                                    )
+                                                }
+                                                IconButton(onClick = { openUrl(p.url) }) {
+                                                    Icon(Icons.Default.OpenInNew, if (isArabic) "فتح المصدر" else "Open source")
+                                                }
                                             }
                                         }
-                                    }
-                                    Spacer(Modifier.height(10.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        if (p.stars > 0) Text("★ ${p.stars}")
-                                        Text(if (isArabic) "الرخصة: ${p.license}" else "License: ${p.license}")
-                                        if (p.isLocalFriendly) Text(if (isArabic) "• مناسب محليًا" else "• Local-friendly")
-                                    }
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                        IconButton(onClick = { saved = repo.toggleSaved(p.id) }) {
-                                            Icon(if (p.id in saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, "Save")
-                                        }
-                                        IconButton(onClick = { openUrl(p.url) }) { Icon(Icons.Default.OpenInNew, "Open") }
                                     }
                                 }
                             }
@@ -240,6 +381,92 @@ fun RadarApp(openUrl: (String) -> Unit) {
     }
 }
 
+@Composable
+private fun AboutNexvaryScreen(
+    isArabic: Boolean,
+    openUrl: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val links = listOf(
+        Triple("Website", "https://nexvary.com/", Icons.Default.Language),
+        Triple("Facebook", "https://www.facebook.com/share/14p9krEn5ij/", Icons.Default.Facebook),
+        Triple("Email", "mailto:info@nexvary.com", Icons.Default.Email),
+        Triple("YouTube", "https://www.youtube.com/@NexvaryInc", Icons.Default.PlayCircle),
+        Triple("X", "https://x.com/Nexvary", Icons.Default.AlternateEmail)
+    )
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(
+                "NEXVARY",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (isArabic)
+                    "شركة تعمل في الأمن الرقمي والبرمجيات وحلول الحماية التقنية. هذه الصفحة تجمع روابط NEXVARY الرسمية داخل التطبيق."
+                else
+                    "Digital-security, software, and technology-protection company. This page provides NEXVARY's official links inside the app.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        items(links) { item ->
+            ElevatedCard(
+                onClick = { openUrl(item.second) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(item.third, contentDescription = null)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.first, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (item.first == "Email") "info@nexvary.com" else item.second,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Icon(Icons.Default.OpenInNew, contentDescription = null)
+                }
+            }
+        }
+
+        item {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (isArabic)
+                    "NEXVARY AI Radar يكتشف مشاريع الذكاء الاصطناعي الجديدة ويحلل وظيفتها، قابلية تشغيلها محليًا، ومتطلبات العتاد، ومدى فائدتها المحتملة لـ NEXVARY."
+                else
+                    "NEXVARY AI Radar discovers new AI projects and explains their purpose, local-run potential, approximate hardware needs, and possible value to NEXVARY.",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+private fun categoryLabel(category: String, arabic: Boolean): String {
+    if (!arabic) return category
+    return when (category) {
+        "All" -> "الكل"
+        "Agents" -> "الوكلاء"
+        "LLM" -> "النماذج اللغوية"
+        "Video AI" -> "ذكاء الفيديو"
+        "Vision AI" -> "الرؤية والصور"
+        "Audio AI" -> "الصوت"
+        "Coding AI" -> "البرمجة"
+        "Cybersecurity AI" -> "الأمن السيبراني"
+        "AI Apps" -> "تطبيقات AI"
+        else -> category
+    }
+}
 
 @Composable
 private fun ProjectInfoSection(title: String, text: String) {

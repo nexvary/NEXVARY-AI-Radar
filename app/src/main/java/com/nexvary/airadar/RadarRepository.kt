@@ -52,6 +52,13 @@ class RadarRepository(private val context: Context) {
 
     fun savedIds(): Set<String> = prefs.getStringSet("saved", emptySet()) ?: emptySet()
 
+    fun uiLanguage(): String =
+        prefs.getString("ui_language", if (java.util.Locale.getDefault().language == "ar") "ar" else "en") ?: "en"
+
+    fun setUiLanguage(language: String) {
+        prefs.edit().putString("ui_language", if (language == "ar") "ar" else "en").apply()
+    }
+
     fun toggleSaved(id: String): Set<String> {
         val next = savedIds().toMutableSet()
         if (!next.add(id)) next.remove(id)
