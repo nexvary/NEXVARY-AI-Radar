@@ -31,9 +31,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (android.os.Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        if (NotificationSettings.isEnabled(this) && android.os.Build.VERSION.SDK_INT >= 33) {
+            permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         scheduleRadar()
-        setContent { RadarApp { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } }
+        setContent {
+            RadarApp(
+                openUrl = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) },
+                requestNotificationPermission = {
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            )
+        }
     }
 
     private fun scheduleRadar() {
@@ -46,7 +57,10 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RadarApp(openUrl: (String) -> Unit) {
+fun RadarApp(
+    openUrl: (String) -> Unit,
+    requestNotificationPermission: () -> Unit
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val repo = remember { RadarRepository(context) }
     val scope = rememberCoroutineScope()
@@ -58,6 +72,7 @@ fun RadarApp(openUrl: (String) -> Unit) {
     var language by remember { mutableStateOf(repo.uiLanguage()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var notificationsEnabled by remember { mutableStateOf(NotificationSettings.isEnabled(context)) }
 
     val isArabic = language == "ar"
     val layoutDirection = if (isArabic) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -107,10 +122,11 @@ fun RadarApp(openUrl: (String) -> Unit) {
                                     when (screen) {
                                         "candidates" -> if (isArabic) "مرشح لـ NEXVARY" else "NEXVARY Candidates"
                                         "about" -> if (isArabic) "عن NEXVARY" else "About NEXVARY"
+                                        "settings" -> if (isArabic) "الإعدادات" else "Settings"
                                         else -> "NEXVARY AI Radar"
                                     }
                                 )
-                                if (screen != "about") {
+                                if (screen != "about" && screen != "settings") {
                                     Text(
                                         if (isArabic)
                                             (if (screen == "candidates") candidateIds.size.toString() + " مشروعًا مرشحًا" else projects.size.toString() + " اكتشافًا")
@@ -137,7 +153,7 @@ fun RadarApp(openUrl: (String) -> Unit) {
                             ) {
                                 Text(if (isArabic) "EN" else "AR")
                             }
-                            if (screen != "about") {
+                            if (screen != "about" && screen != "settings") {
                                 IconButton(onClick = { refresh() }) {
                                     Icon(Icons.Default.Refresh, if (isArabic) "تحديث" else "Refresh")
                                 }
@@ -160,6 +176,12 @@ fun RadarApp(openUrl: (String) -> Unit) {
                             label = { Text(if (isArabic) "مرشح لـ NEXVARY" else "NEXVARY") }
                         )
                         NavigationBarItem(
+                            selected = screen == "settings",
+                            onClick = { screen = "settings" },
+                            icon = { Icon(Icons.Default.Settings, null) },
+                            label = { Text(if (isArabic) "الإعدادات" else "Settings") }
+                        )
+                        NavigationBarItem(
                             selected = screen == "about",
                             onClick = { screen = "about" },
                             icon = { Icon(Icons.Default.Info, null) },
@@ -172,6 +194,17 @@ fun RadarApp(openUrl: (String) -> Unit) {
                     AboutNexvaryScreen(
                         isArabic = isArabic,
                         openUrl = openUrl,
+                        modifier = Modifier.padding(pad)
+                    )
+                } else if (screen == "settings") {
+                    NotificationSettingsScreen(
+                        isArabic = isArabic,
+                        enabled = notificationsEnabled,
+                        onEnabledChange = { enabled ->
+                            notificationsEnabled = enabled
+                            NotificationSettings.setEnabled(context, enabled)
+                            if (enabled) requestNotificationPermission()
+                        },
                         modifier = Modifier.padding(pad)
                     )
                 } else {
@@ -377,6 +410,87 @@ fun RadarApp(openUrl: (String) -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NotificationSettingsScreen(
+    isArabic: Boolean,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Notifications, contentDescription = null)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (isArabic) "إشعارات المشاريع الجديدة" else "New-project notifications",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (isArabic)
+                                "شغّل أو أوقف جميع تنبيهات NEXVARY AI Radar. عند الإيقاف لن يعرض التطبيق إشعارات Push أو تنبيهات الفحص الدوري."
+                            else
+                                "Enable or disable all NEXVARY AI Radar alerts. When disabled, both push notifications and periodic-scan alerts are suppressed.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = onEnabledChange
+                    )
+                }
+            }
+        }
+
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 2.dp
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        if (isArabic) "الحالة الحالية" else "Current status",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (enabled) {
+                            if (isArabic) "الإشعارات مفعلة." else "Notifications are enabled."
+                        } else {
+                            if (isArabic) "الإشعارات متوقفة. سيستمر التطبيق في عرض المشاريع عند فتحه أو تحديثه يدويًا."
+                            else "Notifications are off. The app will still show projects when opened or manually refreshed."
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+
+        item {
+            Text(
+                if (isArabic)
+                    "ملاحظة: في Android 13 أو أحدث يجب أيضًا السماح بالإشعارات من إذن النظام. تشغيل المفتاح سيطلب الإذن عند الحاجة."
+                else
+                    "Note: Android 13+ also requires the system notification permission. Turning this switch on requests it when needed.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }

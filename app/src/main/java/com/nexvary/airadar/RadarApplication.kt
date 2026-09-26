@@ -34,9 +34,6 @@ class RadarApplication : Application() {
             FirebaseApp.initializeApp(this, options)
         }
 
-        FirebaseMessaging.getInstance()
-            .subscribeToTopic("ai-radar")
-            .addOnSuccessListener { Log.i("NEXVARY-AI-Radar", "Subscribed to ai-radar push topic.") }
-            .addOnFailureListener { Log.w("NEXVARY-AI-Radar", "FCM topic subscription failed.", it) }
+        NotificationSettings.syncFirebaseTopic(this)
     }
 }

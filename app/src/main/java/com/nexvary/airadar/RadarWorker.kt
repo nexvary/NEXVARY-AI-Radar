@@ -18,7 +18,9 @@ class RadarWorker(appContext: Context, params: WorkerParameters) : CoroutineWork
         val current = projects.take(120).map { it.id }.toSet()
         val fresh = projects.filter { it.id !in old }.take(5)
         prefs.edit().putStringSet("seen", current).apply()
-        if (old.isNotEmpty() && fresh.isNotEmpty()) notifyNew(fresh)
+        if (NotificationSettings.isEnabled(applicationContext) && old.isNotEmpty() && fresh.isNotEmpty()) {
+            notifyNew(fresh)
+        }
         Result.success()
     }.getOrElse { Result.retry() }
 

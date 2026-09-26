@@ -14,6 +14,7 @@ import com.google.firebase.messaging.RemoteMessage
 
 class RadarMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
+        if (!NotificationSettings.isEnabled(this)) return
         val title = message.notification?.title ?: "NEXVARY AI Radar"
         val body = message.notification?.body ?: message.data["name"] ?: "New AI project discovered"
         val url = message.data["url"].orEmpty()
