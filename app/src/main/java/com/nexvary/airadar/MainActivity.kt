@@ -136,11 +136,26 @@ fun RadarApp(openUrl: (String) -> Unit) {
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 5
                                     )
-                                    Spacer(Modifier.height(8.dp))
+                                    Spacer(Modifier.height(12.dp))
+                                    ProjectInfoSection(
+                                        title = if (isArabic) "كيف أستخدم هذا المشروع؟" else "How can I use it?",
+                                        text = usageGuide(p, isArabic)
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    ProjectInfoSection(
+                                        title = if (isArabic) "هل يعمل محليًا؟" else "Can it run locally?",
+                                        text = localCompatibility(p, isArabic)
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    ProjectInfoSection(
+                                        title = if (isArabic) "متطلبات التشغيل التقريبية" else "Approximate requirements",
+                                        text = approximateRequirements(p, isArabic)
+                                    )
+                                    Spacer(Modifier.height(10.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         if (p.stars > 0) Text("★ ${p.stars}")
-                                        Text("License: ${p.license}")
-                                        if (p.isLocalFriendly) Text("• Local-friendly")
+                                        Text(if (isArabic) "الرخصة: ${p.license}" else "License: ${p.license}")
+                                        if (p.isLocalFriendly) Text(if (isArabic) "• مناسب محليًا" else "• Local-friendly")
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                         IconButton(onClick = { saved = repo.toggleSaved(p.id) }) {
@@ -156,4 +171,113 @@ fun RadarApp(openUrl: (String) -> Unit) {
             }
         }
     }
+}
+
+
+@Composable
+private fun ProjectInfoSection(title: String, text: String) {
+    Column {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.secondary
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+private fun usageGuide(project: RadarProject, arabic: Boolean): String {
+    if (project.source == "arXiv") {
+        return if (arabic)
+            "هذا بحث علمي وليس برنامجًا جاهزًا. افتح المصدر لقراءة الورقة، ثم راجع قسم الكود أو المستودع المرتبط إن وُجد لتجربة الفكرة عمليًا."
+        else
+            "This is a research paper, not a ready-to-run app. Open the source to read it, then follow any linked code repository if available."
+    }
+    if (project.source == "Hugging Face" && project.category == "AI Apps") {
+        return if (arabic)
+            "افتح المشروع لتجربته مباشرة داخل Hugging Face Spaces. إذا كان المستودع متاحًا يمكنك نسخه وتشغيله ذاتيًا وفق ملفات المشروع."
+        else
+            "Open the project to try it directly in Hugging Face Spaces. If its repository is available, you can clone and self-host it using the project instructions."
+    }
+    if (project.source == "Hugging Face") {
+        return if (arabic)
+            "يمكنك استخدام النموذج عبر Hugging Face أو تنزيله ودمجه في تطبيقك. راجع Model Card لمعرفة المكتبة المطلوبة وطريقة الاستدعاء وحجم النموذج."
+        else
+            "Use the model through Hugging Face or download it for integration in your own app. Check the Model Card for the required library, invocation example, and model size."
+    }
+    if (project.source == "GitHub") {
+        return if (arabic)
+            "افتح المستودع واقرأ README أولًا، ثم اتبع أوامر التثبيت والتشغيل الخاصة بالمشروع. راجع Releases إن وُجدت للحصول على نسخة جاهزة قبل البناء من المصدر."
+        else
+            "Open the repository and read its README first, then follow its installation and run commands. Check Releases for a ready build before compiling from source."
+    }
+    return if (arabic)
+        "افتح المصدر واقرأ تعليمات التشغيل الرسمية للمشروع قبل التثبيت أو الدمج."
+    else
+        "Open the source and follow the project's official usage instructions before installing or integrating it."
+}
+
+private fun localCompatibility(project: RadarProject, arabic: Boolean): String {
+    if (project.source == "arXiv") {
+        return if (arabic)
+            "لا ينطبق مباشرة؛ هذا بحث. إمكانية التشغيل المحلي تعتمد على وجود كود أو نموذج مرفق."
+        else
+            "Not directly applicable; this is research. Local execution depends on whether code or a model is published."
+    }
+    if (project.category == "AI Apps" && project.source == "Hugging Face") {
+        return if (arabic)
+            "يعمل عبر المتصفح على خادم Hugging Face. التشغيل المحلي ممكن فقط إذا كان صاحب المشروع نشر الكود والمتطلبات."
+        else
+            "It runs remotely in the browser on Hugging Face. Local execution is possible only if the author provides code and dependencies."
+    }
+    if (project.isLocalFriendly) {
+        return if (arabic)
+            "نعم، توجد مؤشرات على دعم التشغيل المحلي مثل GGUF أو ONNX أو quantization أو CPU/edge. يجب مراجعة حجم النموذج قبل التنزيل."
+        else
+            "Likely yes. The project has local-friendly signals such as GGUF, ONNX, quantization, CPU, or edge support. Check model size before downloading."
+    }
+    return if (arabic)
+        "غير مؤكد من البيانات المتاحة. قد يعمل محليًا، لكن لا توجد حاليًا مؤشرات كافية؛ راجع README أو Model Card قبل التحميل."
+    else
+        "Not confirmed from the available metadata. It may run locally, but there are not enough signals yet; check the README or Model Card first."
+}
+
+private fun approximateRequirements(project: RadarProject, arabic: Boolean): String {
+    val description = (project.description + " " + project.purpose).lowercase()
+    if (project.source == "arXiv") {
+        return if (arabic)
+            "للقراءة فقط: هاتف أو كمبيوتر ومتصفح. لتنفيذ البحث عمليًا تختلف المتطلبات حسب الكود والنموذج المرفق."
+        else
+            "For reading: any phone/computer with a browser. Reproducing the research depends on the accompanying code and model."
+    }
+    if (project.category == "AI Apps" && project.source == "Hugging Face") {
+        return if (arabic)
+            "للاستخدام عبر Space: متصفح واتصال إنترنت. لا تحتاج GPU محليًا لأن المعالجة تتم على الخادم ما لم تشغله ذاتيًا."
+        else
+            "For a hosted Space: browser and internet connection. A local GPU is not required unless you self-host it."
+    }
+    if (project.isLocalFriendly) {
+        return if (arabic)
+            "تقدير أولي: يمكن أن يبدأ من CPU وذاكرة 8–16GB للمشروعات الخفيفة أو النماذج المضغوطة. النماذج الأكبر قد تحتاج GPU وVRAM أعلى؛ الحجم الفعلي يجب أخذه من صفحة المشروع."
+        else
+            "Initial estimate: lightweight or quantized projects may start around a CPU with 8–16 GB RAM. Larger models can require a GPU and more VRAM; use the source page for exact figures."
+    }
+    if (project.category == "Video AI" || "diffusion" in description || "video" in description) {
+        return if (arabic)
+            "غالبًا من الفئات الثقيلة: يفضّل GPU منفصل، وكمية VRAM تعتمد بشدة على النموذج والدقة. لا يعرض المصدر الحالي رقمًا موثوقًا، لذلك راجع متطلبات المشروع قبل التنزيل."
+        else
+            "Usually compute-heavy: a discrete GPU is commonly preferred, while VRAM depends heavily on the model and resolution. Check the project requirements for an exact figure."
+    }
+    if (project.category == "LLM") {
+        return if (arabic)
+            "تعتمد على حجم النموذج ودرجة الضغط. النماذج الصغيرة أو quantized قد تعمل على CPU/RAM، بينما النماذج الكبيرة تحتاج RAM/VRAM أكبر. راجع حجم الملفات وModel Card."
+        else
+            "Depends on model size and quantization. Small or quantized models may run on CPU/RAM, while larger models require more RAM/VRAM. Check file sizes and the Model Card."
+    }
+    return if (arabic)
+        "لا توجد معلومات عتاد كافية في البيانات الحالية. راجع README أو Model Card لمعرفة نظام التشغيل وRAM وGPU ومساحة التخزين المطلوبة."
+    else
+        "The current metadata is insufficient for a hardware estimate. Check the README or Model Card for OS, RAM, GPU, and storage requirements."
 }
