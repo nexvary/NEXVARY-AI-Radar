@@ -113,6 +113,8 @@ fun RadarApp(openUrl: (String) -> Unit) {
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(filtered, key = { it.id }) { p ->
+                            var nexvaryExpanded by remember(p.id) { mutableStateOf(false) }
+                            val nexvaryFit = remember(p) { analyzeNexvaryFit(p, isArabic) }
                             ElevatedCard(Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(14.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -151,6 +153,71 @@ fun RadarApp(openUrl: (String) -> Unit) {
                                         title = if (isArabic) "متطلبات التشغيل التقريبية" else "Approximate requirements",
                                         text = approximateRequirements(p, isArabic)
                                     )
+                                    Spacer(Modifier.height(12.dp))
+                                    OutlinedButton(
+                                        onClick = { nexvaryExpanded = !nexvaryExpanded },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.BusinessCenter, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(if (isArabic) "هل يفيد NEXVARY؟" else "Useful for NEXVARY?")
+                                        Spacer(Modifier.weight(1f))
+                                        Icon(
+                                            if (nexvaryExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            contentDescription = null
+                                        )
+                                    }
+                                    if (nexvaryExpanded) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Surface(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = MaterialTheme.shapes.medium,
+                                            tonalElevation = 2.dp
+                                        ) {
+                                            Column(Modifier.padding(12.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        nexvaryFit.level,
+                                                        style = MaterialTheme.typography.titleSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(Modifier.weight(1f))
+                                                    AssistChip(
+                                                        onClick = {},
+                                                        label = { Text("${nexvaryFit.score}/100") }
+                                                    )
+                                                }
+                                                Spacer(Modifier.height(6.dp))
+                                                Text(
+                                                    nexvaryFit.summary,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                if (nexvaryFit.useCases.isNotEmpty()) {
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Text(
+                                                        if (isArabic) "مجالات الاستفادة داخل NEXVARY" else "NEXVARY use cases",
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                    Spacer(Modifier.height(4.dp))
+                                                    nexvaryFit.useCases.forEach { useCase ->
+                                                        Text("• $useCase", style = MaterialTheme.typography.bodySmall)
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(8.dp))
+                                                Text(
+                                                    if (isArabic) "ملاحظة عملية" else "Practical note",
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.secondary
+                                                )
+                                                Spacer(Modifier.height(3.dp))
+                                                Text(nexvaryFit.caution, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
                                     Spacer(Modifier.height(10.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         if (p.stars > 0) Text("★ ${p.stars}")
@@ -280,4 +347,161 @@ private fun approximateRequirements(project: RadarProject, arabic: Boolean): Str
         "لا توجد معلومات عتاد كافية في البيانات الحالية. راجع README أو Model Card لمعرفة نظام التشغيل وRAM وGPU ومساحة التخزين المطلوبة."
     else
         "The current metadata is insufficient for a hardware estimate. Check the README or Model Card for OS, RAM, GPU, and storage requirements."
+}
+
+
+private data class NexvaryFit(
+    val score: Int,
+    val level: String,
+    val summary: String,
+    val useCases: List<String>,
+    val caution: String
+)
+
+private fun analyzeNexvaryFit(project: RadarProject, arabic: Boolean): NexvaryFit {
+    val text = (project.name + " " + project.description + " " + project.purpose + " " + project.category).lowercase()
+    var score = 12
+    val useCases = mutableListOf<String>()
+
+    fun add(points: Int, ar: String, en: String) {
+        score += points
+        useCases += if (arabic) ar else en
+    }
+
+    when (project.category) {
+        "Video AI" -> add(
+            28,
+            "NEXVARY-DA: توليد الفيديو، تحسين المشاهد، أو بناء إعلانات المنتجات.",
+            "NEXVARY-DA: video generation, scene enhancement, or product-ad production."
+        )
+        "Vision AI" -> add(
+            24,
+            "NEXVARY-DA: تحليل صور المنتجات وOCR والرؤية الحاسوبية.",
+            "NEXVARY-DA: product-image analysis, OCR, and computer vision."
+        )
+        "Audio AI" -> add(
+            22,
+            "NEXVARY-DA: التعليق الصوتي، تحويل النص إلى صوت، أو معالجة التسجيلات.",
+            "NEXVARY-DA: voice-over, text-to-speech, or audio processing."
+        )
+        "Coding AI" -> add(
+            22,
+            "تطوير البرمجيات: مساعدة الوكيل البرمجي في كتابة وتحليل واختبار الكود.",
+            "Software development: assist the coding agent with writing, analysis, and testing."
+        )
+        "Agents" -> add(
+            26,
+            "الأتمتة والوكلاء: دمجه كعامل أو أداة تنفيذ داخل أنظمة NEXVARY.",
+            "Automation and agents: integrate it as an execution component in NEXVARY systems."
+        )
+        "Cybersecurity AI" -> add(
+            32,
+            "قسم الأمن السيبراني: التحليل، الاكتشاف، الفرز، أو التحقيق الرقمي.",
+            "Cybersecurity: analysis, detection, triage, or digital investigation."
+        )
+        "LLM" -> add(
+            18,
+            "المساعدات الداخلية والوكلاء: فهم النصوص، التلخيص، البحث، وتنسيق المهام.",
+            "Internal assistants and agents: text understanding, summarization, research, and task orchestration."
+        )
+        "AI Apps" -> add(
+            10,
+            "الاستكشاف السريع: تجربة فكرة أو واجهة جاهزة قبل بناء نسخة داخلية.",
+            "Rapid exploration: test an existing idea or interface before building an internal version."
+        )
+    }
+
+    if (project.isLocalFriendly) {
+        add(
+            18,
+            "تشغيل محلي/خاص: مناسب أكثر لبيئات NEXVARY التي تتطلب خصوصية وتقليل الاعتماد على السحابة.",
+            "Local/private deployment: better suited to NEXVARY environments requiring privacy and lower cloud dependence."
+        )
+    }
+
+    if (listOf("ocr", "document", "vision", "image-to-text").any { it in text }) {
+        add(
+            10,
+            "OCR وتحليل المستندات والصور: قابل للاستخدام في أدوات الفحص والتحليل.",
+            "OCR and document/image analysis: useful in inspection and analysis tools."
+        )
+    }
+    if (listOf("tts", "speech", "voice", "audio").any { it in text }) {
+        add(
+            8,
+            "الصوت: يمكن الاستفادة منه في الإعلانات والمساعدات الصوتية وتحويل المحتوى.",
+            "Audio: can support ads, voice assistants, and content conversion."
+        )
+    }
+    if (listOf("video", "diffusion", "image generation", "text-to-image").any { it in text }) {
+        add(
+            10,
+            "الإنتاج المرئي: مرشح لخط إنتاج الصور والفيديو داخل NEXVARY-DA.",
+            "Visual production: candidate for the image/video pipeline in NEXVARY-DA."
+        )
+    }
+    if (listOf("security", "cyber", "malware", "forensic", "vulnerability").any { it in text } &&
+        project.category != "Cybersecurity AI"
+    ) {
+        add(
+            14,
+            "الأمن الرقمي: توجد مؤشرات على فائدة محتملة لأدوات الفحص أو التحليل الأمني.",
+            "Digital security: signals indicate possible value for security inspection or analysis."
+        )
+    }
+
+    if (project.source == "arXiv") score -= 8
+    if (project.source == "Hugging Face" && project.category == "AI Apps") score -= 4
+
+    score = score.coerceIn(0, 100)
+
+    val level = when {
+        score >= 75 -> if (arabic) "ملاءمة مرتفعة لـ NEXVARY" else "High NEXVARY fit"
+        score >= 50 -> if (arabic) "ملاءمة جيدة لـ NEXVARY" else "Good NEXVARY fit"
+        score >= 30 -> if (arabic) "فائدة محتملة تحتاج مراجعة" else "Potential value; review needed"
+        else -> if (arabic) "فائدة محدودة حاليًا" else "Limited current value"
+    }
+
+    val summary = if (useCases.isEmpty()) {
+        if (arabic)
+            "لا تظهر من البيانات الحالية علاقة قوية بأحد مسارات NEXVARY الأساسية. قد تكون له فائدة بحثية أو مستقبلية، لكن يلزم فتح المصدر وفحصه قبل الدمج."
+        else
+            "The current metadata does not show a strong match to a core NEXVARY workflow. It may still have research or future value, but the source should be reviewed before integration."
+    } else {
+        if (arabic)
+            "تمت مطابقة المشروع مع " + useCases.size + " مسار/مسارات استخدام محتملة داخل NEXVARY استنادًا إلى نوعه ووصفه وإشارات التشغيل المحلي."
+        else
+            "The project matches " + useCases.size + " potential NEXVARY use case(s) based on its category, description, and local-execution signals."
+    }
+
+    val caution = when {
+        project.source == "arXiv" ->
+            if (arabic)
+                "هذه ورقة بحثية؛ لا تعتبرها مكوّنًا جاهزًا قبل العثور على الكود، الرخصة، الاختبارات، ومتطلبات العتاد."
+            else
+                "This is a research paper; do not treat it as a ready component until code, licensing, tests, and hardware requirements are verified."
+        project.license.equals("Unknown", true) || project.license.equals("See source", true) ->
+            if (arabic)
+                "تحقق من الرخصة قبل دمجه تجاريًا داخل منتجات NEXVARY، ثم اختبر الجودة والأداء فعليًا."
+            else
+                "Verify the license before commercial integration into NEXVARY products, then benchmark quality and performance."
+        !project.isLocalFriendly ->
+            if (arabic)
+                "الفائدة لا تعني سهولة التشغيل المحلي. راجع متطلبات GPU/RAM، الاعتماد على APIs خارجية، والرخصة قبل الاعتماد."
+            else
+                "Usefulness does not imply easy local execution. Verify GPU/RAM needs, external API dependencies, and licensing before adoption."
+        else ->
+            if (arabic)
+                "مرشح جيد للتجربة المعملية. ابدأ باختبار صغير على بيانات غير حساسة، ثم قارن الجودة والسرعة واستهلاك الموارد قبل الدمج."
+            else
+                "A good lab candidate. Start with non-sensitive test data, then compare quality, speed, and resource use before integration."
+    }
+
+    return NexvaryFit(
+        score = score,
+        level = level,
+        summary = summary,
+        useCases = useCases.distinct(),
+        caution = caution
+    )
 }
