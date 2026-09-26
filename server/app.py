@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import hmac
 import json
 import os
 import sqlite3
@@ -11,7 +12,7 @@ from typing import Any
 import feedparser
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from firebase_admin import credentials, initialize_app, messaging
 
 DB_PATH = Path(os.getenv("RADAR_DB", "radar.db"))
@@ -19,6 +20,8 @@ SCAN_SECONDS = max(30, int(os.getenv("SCAN_SECONDS", "60")))
 FCM_TOPIC = os.getenv("FCM_TOPIC", "ai-radar")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
+HF_WEBHOOK_SECRET = os.getenv("HF_WEBHOOK_SECRET", "")
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 firebase_ready = False
@@ -41,8 +44,28 @@ def db() -> sqlite3.Connection:
             first_seen_at TEXT NOT NULL
         )
     """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS webhook_deliveries (
+            delivery_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            received_at TEXT NOT NULL
+        )
+    """)
     c.commit()
     return c
+
+def remember_delivery(delivery_id: str, source: str) -> bool:
+    if not delivery_id:
+        return True
+    with db() as c:
+        try:
+            c.execute(
+                "INSERT INTO webhook_deliveries(delivery_id,source,received_at) VALUES(?,?,?)",
+                (delivery_id, source, datetime.now(timezone.utc).isoformat()),
+            )
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
 def init_firebase() -> None:
     global firebase_ready
@@ -266,3 +289,79 @@ async def scan():
         return await scan_once()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/webhooks/huggingface")
+async def huggingface_webhook(request: Request):
+    if HF_WEBHOOK_SECRET and request.headers.get("X-Webhook-Secret") != HF_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+    delivery_id = request.headers.get("Webhook-Id", "")
+    if not remember_delivery(delivery_id, "huggingface"):
+        return {"ok": True, "duplicate": True}
+    payload = await request.json()
+    event = payload.get("event") or {}
+    repo = payload.get("repo") or {}
+    if event.get("scope") != "repo" or event.get("action") not in {"create", "update"}:
+        return {"ok": True, "ignored": True}
+    name = repo.get("name")
+    web_url = ((repo.get("url") or {}).get("web"))
+    repo_type = repo.get("type") or "model"
+    if not name or not web_url:
+        raise HTTPException(status_code=400, detail="Missing repo fields")
+    text = f"{name} {repo_type}"
+    item = {
+        "id": f"hf:webhook:{repo.get('id') or name}",
+        "name": name,
+        "description": f"Hugging Face {repo_type} webhook event",
+        "url": web_url,
+        "source": "Hugging Face",
+        "category": "AI Apps" if repo_type == "space" else category(text),
+        "published_at": datetime.now(timezone.utc).isoformat(),
+        "popularity": 0,
+        "score": 65,
+        "local_friendly": is_local(text),
+    }
+    new_items = save_new([item])
+    return {"ok": True, "new": len(new_items), "pushed": push(new_items)}
+
+@app.post("/webhooks/github")
+async def github_webhook(request: Request):
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    if GITHUB_WEBHOOK_SECRET:
+        expected = "sha256=" + hmac.new(
+            GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    delivery_id = request.headers.get("X-GitHub-Delivery", "")
+    if not remember_delivery(delivery_id, "github"):
+        return {"ok": True, "duplicate": True}
+    event_name = request.headers.get("X-GitHub-Event", "")
+    payload = json.loads(body.decode("utf-8") or "{}")
+    if event_name != "repository" or payload.get("action") not in {"created", "publicized"}:
+        return {"ok": True, "ignored": True}
+    repo = payload.get("repository") or {}
+    name = repo.get("full_name")
+    url = repo.get("html_url")
+    if not name or not url:
+        raise HTTPException(status_code=400, detail="Missing repository fields")
+    desc = repo.get("description") or "New GitHub repository"
+    topics = repo.get("topics") or []
+    text = " ".join([name, desc, " ".join(topics)])
+    local = is_local(text)
+    stars = int(repo.get("stargazers_count") or 0)
+    item = {
+        "id": f"gh:webhook:{repo.get('id') or name}",
+        "name": name,
+        "description": desc,
+        "url": url,
+        "source": "GitHub",
+        "category": category(text),
+        "published_at": repo.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "popularity": stars,
+        "score": score(stars, repo.get("created_at") or datetime.now(timezone.utc).isoformat(), local),
+        "local_friendly": local,
+    }
+    new_items = save_new([item])
+    return {"ok": True, "new": len(new_items), "pushed": push(new_items)}
